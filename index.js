@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const uri = process.env.MONGO_URI;
 const port = process.env.PORT || 3000;
@@ -28,6 +28,28 @@ app.use(express.json());
 
 async function run() {
   try {
+    const db = client.db("PIIRS");
+    const IssuesCollection = db.collection("Issues");
+
+    app.get("/issues", async (req, res) => {
+      const result = await IssuesCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.post("/report-issue", async (req, res) => {
+      const newIssue = req.body;
+      const query = { tittle: newIssue.tittle };
+      const alreadyExist = await IssuesCollection.findOne(query);
+      if (alreadyExist) {
+        // console.log("Already Exits");
+        return res.send("Already Exits");
+      } else {
+        const result = await IssuesCollection.insertOne(newIssue);
+        res.send(result);
+        // console.log(newIssue);
+      }
+    });
+
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Send a ping to confirm a successful connection
