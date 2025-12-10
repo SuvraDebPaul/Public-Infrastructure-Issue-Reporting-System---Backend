@@ -55,8 +55,34 @@ async function run() {
       );
       res.send(result);
     });
+    //Updating Upvotes By Email and Id
+    app.put("/issues/upvote/:id", async (req, res) => {
+      const { userEmail } = req.body;
+      const { id } = req.params;
+      // console.log(userEmail);
+      // console.log(id);
+      const issue = await IssuesCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      if (!issue) return res.status(404).send({ message: "Issue not found" });
+
+      if (issue.upvotedBy.includes(userEmail)) {
+        return res.send({ message: "You already upvoted this issue" });
+      }
+
+      await IssuesCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        {
+          $inc: { upvotes: 1 },
+          $push: { upvotedBy: userEmail },
+        }
+      );
+
+      res.send({ success: true, message: "Upvote added" });
+    });
+
     // Deleting a Single Issue
-    // Delete an issue by ID
+
     app.delete("/issues/:id", async (req, res) => {
       const id = req.params.id;
       try {
