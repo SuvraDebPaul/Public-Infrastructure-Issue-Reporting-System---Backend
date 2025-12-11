@@ -82,7 +82,6 @@ async function run() {
     });
 
     // Deleting a Single Issue
-
     app.delete("/issues/:id", async (req, res) => {
       const id = req.params.id;
       try {
@@ -102,13 +101,14 @@ async function run() {
           .send({ success: false, message: "Failed to delete issue" });
       }
     });
-    // app.get("/issues/:email", async (req, res) => {
-    //   const email = req.params.email;
-    //   console.log(email);
-    //   const query = { userEmail: email };
-    //   const result = await IssuesCollection.find(query).toArray();
-    //   res.send(result);
-    // });
+    //Getting Issue according to User Email
+    app.get("/all-issues/:email", async (req, res) => {
+      const email = req.params.email;
+      console.log(email);
+      const query = { userEmail: email };
+      const result = await IssuesCollection.find(query).toArray();
+      res.send(result);
+    });
 
     app.post("/report-issue", async (req, res) => {
       const newIssue = req.body;
@@ -199,7 +199,13 @@ async function run() {
       console.log(boostAlreadyExist);
       res.send({ boostAlreadyExist });
     });
-
+    //Get all Payments By a User Email
+    app.get("/payments/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { paidBy: email };
+      const result = await PaymentsCollection.find(query).toArray();
+      res.send(result);
+    });
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Send a ping to confirm a successful connection
