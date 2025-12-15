@@ -20,13 +20,13 @@ admin.initializeApp({
 // jwt middlewares
 const verifyJWT = async (req, res, next) => {
   const token = req?.headers?.authorization?.split(" ")[1];
-  console.log(token);
+  // console.log(token);
   if (!token)
     return res.status(401).send({ message: "No Token Unauthorized Access!" });
   try {
     const decoded = await admin.auth().verifyIdToken(token);
     req.tokenEmail = decoded.email;
-    console.log(decoded);
+    // console.log(decoded);
     next();
   } catch (err) {
     console.log(err);
@@ -74,7 +74,7 @@ async function run() {
 
       const query = { email: userData.email };
       const alreadyExist = await UsersCollection.findOne(query);
-      console.log("User Already Exits---->", !!alreadyExist);
+      // console.log("User Already Exits---->", !!alreadyExist);
 
       if (alreadyExist) {
         //Updating User Info
@@ -94,7 +94,6 @@ async function run() {
     app.put("/users/update", async (req, res) => {
       const UpdateUser = req.body;
       const { name, email } = UpdateUser;
-      console.log(name, email);
       const query = { email };
       await UsersCollection.findOne(query);
       const result = await UsersCollection.updateOne(query, {
@@ -106,9 +105,14 @@ async function run() {
       return res.send(result);
     });
 
+    //Get All User
+    app.get("/users", verifyJWT, async (req, res) => {
+      // console.log(req.tokenEmail);
+      const result = await UsersCollection.find().toArray();
+      res.send(result);
+    });
     //Get a Users Role
     app.get("/users/role", verifyJWT, async (req, res) => {
-      console.log(req.tokenEmail);
       const query = { email: req.tokenEmail };
       const result = await UsersCollection.findOne(query);
       res.send(result);
@@ -121,20 +125,36 @@ async function run() {
     //Getting a Single Issue
     app.get("/issues/:id", async (req, res) => {
       const id = req.params.id;
+      console.log(id);
       const query = { _id: new ObjectId(id) };
       const result = await IssuesCollection.findOne(query);
-      // console.log(result);
+      console.log(result);
       res.send(result);
     });
     //Updating a Single Issue
     app.put("/issues/:id", async (req, res) => {
       const id = req.params.id;
-      const updatedData = req.body;
-      const result = await IssuesCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: updatedData }
-      );
-      res.send(result);
+      const { timeline, ...updatedData } = req.body;
+      try {
+        const updateObj = { $set: updatedData };
+        if (timeline) {
+          updateObj.$push = {
+            timeline: {
+              status: timeline.status,
+              message: timeline.message,
+              createdAt: new Date().toISOString(),
+              updatedBy: timeline.updatedBy,
+            },
+          };
+        }
+        const result = await IssuesCollection.updateOne(
+          { _id: new ObjectId(id) },
+          updateObj
+        );
+        res.send(result);
+      } catch (err) {
+        console.log(err);
+      }
     });
     //Updating Upvotes By Email and Id
     app.put("/issues/upvote/:id", async (req, res) => {
@@ -185,7 +205,7 @@ async function run() {
     //Getting Issue according to User Email
     app.get("/all-issues/:email", async (req, res) => {
       const email = req.params.email;
-      console.log(email);
+      // console.log(email);
       const query = { userEmail: email };
       const result = await IssuesCollection.find(query).toArray();
       res.send(result);
@@ -209,7 +229,7 @@ async function run() {
     app.post("/create-checkout-session", async (req, res) => {
       const paymentIfo = req.body;
       const paymentType = paymentIfo?.type || "boost";
-      console.log(paymentType);
+      // console.log(paymentType);
       //Subscribe Payments
       if (paymentType === "subscribe") {
         const session = await stripe.checkout.sessions.create({
@@ -272,7 +292,7 @@ async function run() {
       const { sessionId } = req.body;
       // console.log(sessionId);
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      console.log(session);
+      // console.log(session);
       const boostAlreadyExist = await PaymentsCollection.findOne({
         transectionId: session.payment_intent,
       });
@@ -284,6 +304,7 @@ async function run() {
           paidBy: session.customer_email,
           paymentType: session.metadata?.type || "boost",
           amount: session.amount_total / 100,
+          createdAt: new Date().toISOString(),
         };
         // console.log(boostInfo);
         const result = await PaymentsCollection.insertOne(boostInfo);
@@ -327,7 +348,7 @@ async function run() {
         }
         return res.send({ boostInfo, orderId: result.insertedId });
       }
-      console.log(boostAlreadyExist);
+      // console.log(boostAlreadyExist);
       return res.send({ boostAlreadyExist });
     });
     //Get all Payments By a User Email
@@ -337,8 +358,12 @@ async function run() {
       const result = await PaymentsCollection.find(query).toArray();
       res.send(result);
     });
+    //Get all Payments For Admin
+    app.get("/payments", verifyJWT, async (req, res) => {
+      const result = await PaymentsCollection.find().toArray();
+      res.send(result);
+    });
 
-    
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Send a ping to confirm a successful connection
