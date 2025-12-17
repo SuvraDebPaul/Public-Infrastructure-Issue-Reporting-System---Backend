@@ -90,6 +90,121 @@ async function run() {
       res.send(result);
     });
 
+    // Create Staff (Firebase Auth + DB)
+    app.post("/users/staff", async (req, res) => {
+      try {
+        const { name, email, phone, image, password } = req.body;
+
+        // 1. Create Firebase Auth User (Admin SDK)
+        const userRecord = await admin.auth().createUser({
+          email,
+          password,
+          displayName: name,
+          phoneNumber: phone || undefined,
+          photoURL: image || undefined,
+        });
+
+        // 2. Prepare DB record
+        const staffData = {
+          uid: userRecord.uid,
+          name,
+          email,
+          phone,
+          image,
+          role: "staff",
+          isPremium: false,
+          subscribedBy: "",
+          isBlocked: false,
+          blockedBy: "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          loggInAt: new Date().toISOString(),
+        };
+
+        // 3. Save to MongoDB
+        const result = await UsersCollection.insertOne(staffData);
+
+        res.send({
+          success: true,
+          message: "Staff created successfully",
+          uid: userRecord.uid,
+          insertedId: result.insertedId,
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, error: err.message });
+      }
+    });
+
+    // Update Staff Information
+    app.put("/users/staff/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { name, email, image } = req.body;
+
+        const staff = await UsersCollection.findOne({ _id: new ObjectId(id) });
+        if (!staff) {
+          return res
+            .status(404)
+            .send({ success: false, message: "Staff not found" });
+        }
+
+        // Update Firebase Auth profile (optional)
+        await admin.auth().updateUser(staff.uid, {
+          displayName: name,
+          email: email,
+          photoURL: image || undefined,
+        });
+
+        // Update MongoDB record
+        const result = await UsersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              name,
+              email,
+              image,
+              updatedAt: new Date().toISOString(),
+            },
+          }
+        );
+
+        res.send({
+          success: true,
+          message: "Staff updated successfully",
+          result,
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, error: err.message });
+      }
+    });
+
+    // Delete Staff (Firebase Auth + DB)
+    app.delete("/users/staff/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        // 1. Find staff in DB
+        const staff = await UsersCollection.findOne({ _id: new ObjectId(id) });
+        if (!staff) {
+          return res
+            .status(404)
+            .send({ success: false, message: "Staff not found" });
+        }
+
+        // 2. Delete Firebase Auth user
+        await admin.auth().deleteUser(staff.uid);
+
+        // 3. Delete from MongoDB
+        await UsersCollection.deleteOne({ _id: new ObjectId(id) });
+
+        res.send({ success: true, message: "Staff deleted successfully" });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, error: err.message });
+      }
+    });
+
     //Update User Profile
     app.put("/users/update", async (req, res) => {
       const UpdateUser = req.body;
@@ -102,6 +217,22 @@ async function run() {
           updatedAt: new Date().toISOString(),
         },
       });
+      return res.send(result);
+    });
+
+    app.put("/users/block", async (req, res) => {
+      const UpdateUser = req.body;
+      const { isBlocked, email, blockedBy } = UpdateUser;
+      const query = { email };
+      await UsersCollection.findOne(query);
+      const result = await UsersCollection.updateOne(query, {
+        $set: {
+          isBlocked,
+          blockedBy,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      console.log(result);
       return res.send(result);
     });
 
