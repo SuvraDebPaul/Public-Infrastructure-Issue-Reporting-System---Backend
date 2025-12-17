@@ -248,7 +248,13 @@ async function run() {
       const result = await UsersCollection.findOne(query);
       res.send(result);
     });
-
+    //Get Single User
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const result = await UsersCollection.findOne(query);
+      res.send(result);
+    });
     app.get("/issues", async (req, res) => {
       const result = await IssuesCollection.find().toArray();
       res.send(result);
