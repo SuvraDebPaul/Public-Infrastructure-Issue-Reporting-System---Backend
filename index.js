@@ -38,7 +38,7 @@ const verifyJWT = async (req, res, next) => {
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
-    strict: true,
+    strict: false,
     deprecationErrors: true,
   },
 });
@@ -87,6 +87,7 @@ async function run() {
       }
       //Saving New User Info
       const result = await UsersCollection.insertOne(userData);
+      console.log(result);
       res.send(result);
     });
 
@@ -259,6 +260,83 @@ async function run() {
       const result = await IssuesCollection.find().toArray();
       res.send(result);
     });
+    app.get("/allIssues", async (req, res) => {
+      try {
+        const {
+          search = "",
+          category = "",
+          status = "",
+          priority = "",
+          boosted = "",
+          sort = "recent",
+          page = 1,
+          limit = 9,
+        } = req.query;
+
+        const query = {};
+
+        if (search) {
+          query.$or = [
+            { tittle: { $regex: search, $options: "i" } },
+            { category: { $regex: search, $options: "i" } },
+            { location: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        // FILTERS
+        if (category) query.category = category;
+        if (status) query.status = status;
+        if (priority) query.priority = priority;
+        if (boosted === "true") query.boosted = true;
+
+        // SORTING
+        let sortQuery = {};
+        switch (sort) {
+          case "upvotes":
+            sortQuery = { upvotes: -1 };
+            break;
+          case "boosted":
+            sortQuery = { boosted: -1, createdAt: -1 };
+            break;
+          default:
+            sortQuery = { createdAt: -1 }; // most recent
+        }
+
+        // PAGINATION
+        const skip = (page - 1) * limit;
+
+        const cursor = IssuesCollection.find(query)
+          .sort(sortQuery)
+          .skip(skip)
+          .limit(Number(limit));
+
+        const issues = await cursor.toArray();
+        const totalCount = await IssuesCollection.countDocuments(query);
+        const totalPages = Math.ceil(totalCount / limit);
+
+        res.send({
+          issues,
+          totalPages,
+          totalCount,
+          currentPage: Number(page),
+        });
+      } catch (error) {
+        console.error("Error fetching issues:", error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    //Getting Categorylist
+    app.get("/issues/categories", async (req, res) => {
+      try {
+        const categories = await IssuesCollection.distinct("category");
+        res.send(categories);
+      } catch (error) {
+        console.error("Error fetching categories:", error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
     //Getting a Single Issue
     app.get("/issues/:id", async (req, res) => {
       const id = req.params.id;
@@ -461,7 +539,7 @@ async function run() {
               $push: {
                 timeline: {
                   status: "boosted",
-                  message: "Issue boosted by user",
+                  message: `Issue boosted by ${session.customer_email} `,
                   createdAt: new Date(),
                   updatedBy: session.customer_email,
                 },
