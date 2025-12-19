@@ -19,18 +19,21 @@ admin.initializeApp({
 
 // jwt middlewares
 const verifyJWT = async (req, res, next) => {
-  const token = req?.headers?.authorization?.split(" ")[1];
-  // console.log(token);
-  if (!token)
-    return res.status(401).send({ message: "No Token Unauthorized Access!" });
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).send({ message: "No token provided" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    req.tokenEmail = decoded.email;
-    // console.log(decoded);
-    next();
+    req.decoded = decoded;
+    return next();
   } catch (err) {
-    console.log(err);
-    return res.status(401).send({ message: "Unauthorized Access!", err });
+    console.error("JWT error:", err);
+    return res.status(401).send({ message: "Unauthorized access" });
   }
 };
 
@@ -46,22 +49,44 @@ const client = new MongoClient(uri, {
 //Middlewares
 app.use(
   cors({
-    origin: [process.env.CLIENT_DOMAIN],
+    origin: [
+      "http://localhost:5173",
+      "https://sdp-piirs.web.app/",
+      "https://sdp-piirs.firebaseapp.com",
+    ],
     credentials: true,
-    optionsSuccessStatus: 200,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+app.options("*", cors());
 app.use(express.json());
+
+// --- MongoDB reusable connection ---
+let db, IssuesCollection, PaymentsCollection, UsersCollection;
+
+async function connectDB() {
+  if (!db) {
+    await client.connect();
+    db = client.db("PIIRS");
+    IssuesCollection = db.collection("Issues");
+    PaymentsCollection = db.collection("Payments");
+    UsersCollection = db.collection("Users");
+    console.log("✅ MongoDB connected");
+  }
+}
 
 async function run() {
   try {
-    const db = client.db("PIIRS");
-    const IssuesCollection = db.collection("Issues");
-    const PaymentsCollection = db.collection("Payments");
-    const UsersCollection = db.collection("Users");
-
+    await client.connect();
+    // const db = client.db("PIIRS");
+    // const IssuesCollection = db.collection("Issues");
+    // const PaymentsCollection = db.collection("Payments");
+    // const UsersCollection = db.collection("Users");
+    console.log("✅ MongoDB connected");
     //Save or Update a User in DB
     app.post("/users", async (req, res) => {
+      await connectDB();
       const userData = req.body;
       userData.role = "citizen";
       userData.isPremium = false;
@@ -87,13 +112,14 @@ async function run() {
       }
       //Saving New User Info
       const result = await UsersCollection.insertOne(userData);
-      console.log(result);
+      // console.log(result);
       res.send(result);
     });
 
     // Create Staff (Firebase Auth + DB)
     app.post("/users/staff", async (req, res) => {
       try {
+        await connectDB();
         const { name, email, phone, image, password } = req.body;
 
         // 1. Create Firebase Auth User (Admin SDK)
@@ -140,6 +166,7 @@ async function run() {
     // Update Staff Information
     app.put("/users/staff/:id", async (req, res) => {
       try {
+        await connectDB();
         const id = req.params.id;
         const { name, email, image } = req.body;
 
@@ -184,6 +211,7 @@ async function run() {
     // Delete Staff (Firebase Auth + DB)
     app.delete("/users/staff/:id", async (req, res) => {
       try {
+        await connectDB();
         const id = req.params.id;
         // 1. Find staff in DB
         const staff = await UsersCollection.findOne({ _id: new ObjectId(id) });
@@ -208,6 +236,7 @@ async function run() {
 
     //Update User Profile
     app.put("/users/update", async (req, res) => {
+      await connectDB();
       const UpdateUser = req.body;
       const { name, email } = UpdateUser;
       const query = { email };
@@ -222,6 +251,7 @@ async function run() {
     });
 
     app.put("/users/block", async (req, res) => {
+      await connectDB();
       const UpdateUser = req.body;
       const { isBlocked, email, blockedBy } = UpdateUser;
       const query = { email };
@@ -233,35 +263,40 @@ async function run() {
           updatedAt: new Date().toISOString(),
         },
       });
-      console.log(result);
+      // console.log(result);
       return res.send(result);
     });
 
     //Get All User
     app.get("/users", verifyJWT, async (req, res) => {
+      await connectDB();
       // console.log(req.tokenEmail);
       const result = await UsersCollection.find().toArray();
       res.send(result);
     });
     //Get a Users Role
     app.get("/users/role", verifyJWT, async (req, res) => {
+      await connectDB();
       const query = { email: req.tokenEmail };
       const result = await UsersCollection.findOne(query);
       res.send(result);
     });
     //Get Single User
     app.get("/users/:email", async (req, res) => {
+      await connectDB();
       const email = req.params.email;
       const query = { email };
       const result = await UsersCollection.findOne(query);
-      console.log(result);
+      // console.log(result);
       res.send(result);
     });
     app.get("/issues", async (req, res) => {
+      await connectDB();
       const result = await IssuesCollection.find().toArray();
       res.send(result);
     });
     app.get("/allIssues", async (req, res) => {
+      await connectDB();
       try {
         const {
           search = "",
@@ -329,6 +364,7 @@ async function run() {
 
     //Getting Categorylist
     app.get("/issues/categories", async (req, res) => {
+      await connectDB();
       try {
         const categories = await IssuesCollection.distinct("category");
         res.send(categories);
@@ -340,15 +376,17 @@ async function run() {
 
     //Getting a Single Issue
     app.get("/issues/:id", async (req, res) => {
+      await connectDB();
       const id = req.params.id;
-      console.log(id);
+      // console.log(id);
       const query = { _id: new ObjectId(id) };
       const result = await IssuesCollection.findOne(query);
-      console.log(result);
+      // console.log(result);
       res.send(result);
     });
     //Updating a Single Issue
     app.put("/issues/:id", async (req, res) => {
+      await connectDB();
       const id = req.params.id;
       const { timeline, ...updatedData } = req.body;
       try {
@@ -374,6 +412,7 @@ async function run() {
     });
     //Updating Upvotes By Email and Id
     app.put("/issues/upvote/:id", async (req, res) => {
+      await connectDB();
       const { userEmail } = req.body;
       const { id } = req.params;
       // console.log(userEmail);
@@ -400,6 +439,7 @@ async function run() {
 
     // Deleting a Single Issue
     app.delete("/issues/:id", async (req, res) => {
+      await connectDB();
       const id = req.params.id;
       try {
         const result = await IssuesCollection.deleteOne({
@@ -420,6 +460,7 @@ async function run() {
     });
     //Getting Issue according to User Email
     app.get("/all-issues/:email", async (req, res) => {
+      await connectDB();
       const email = req.params.email;
       // console.log(email);
       const query = { userEmail: email };
@@ -428,6 +469,7 @@ async function run() {
     });
 
     app.post("/report-issue", async (req, res) => {
+      await connectDB();
       const newIssue = req.body;
       const query = { tittle: newIssue.tittle };
       const alreadyExist = await IssuesCollection.findOne(query);
@@ -443,6 +485,7 @@ async function run() {
 
     //STRIPE PAYMENT CHECKOUT SESSION
     app.post("/create-checkout-session", async (req, res) => {
+      await connectDB();
       const paymentIfo = req.body;
       const paymentType = paymentIfo?.type || "boost";
       // console.log(paymentType);
@@ -505,6 +548,7 @@ async function run() {
     });
 
     app.post("/payment/success", async (req, res) => {
+      await connectDB();
       const { sessionId } = req.body;
       // console.log(sessionId);
       const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -569,6 +613,7 @@ async function run() {
     });
     //Get all Payments By a User Email
     app.get("/payments/:email", async (req, res) => {
+      await connectDB();
       const email = req.params.email;
       const query = { paidBy: email };
       const result = await PaymentsCollection.find(query).toArray();
@@ -576,17 +621,12 @@ async function run() {
     });
     //Get all Payments For Admin
     app.get("/payments", verifyJWT, async (req, res) => {
+      await connectDB();
       const result = await PaymentsCollection.find().toArray();
       res.send(result);
     });
-
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+  } catch (err) {
+    console.error("MongoDB connection error:", err);
   } finally {
   }
 }
@@ -597,6 +637,4 @@ app.get("/", (req, res) => {
   res.send("Server is Runing");
 });
 
-app.listen(port, () => {
-  console.log(`👩‍💻 Server is Running on Port ${port}`);
-});
+module.exports = app;
