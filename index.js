@@ -4,38 +4,52 @@ const cors = require("cors");
 const admin = require("firebase-admin");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-
-const uri = process.env.MONGO_URI;
 const port = process.env.PORT || 3000;
+
 const app = express();
 
 const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
   "utf-8"
 );
 const serviceAccount = JSON.parse(decoded);
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
+//Middlewares
+app.use(express.json());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://sdp-piirs.web.app",
+      "https://sdp-piirs.firebaseapp.com",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
 // jwt middlewares
 const verifyJWT = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    return res.status(401).send({ message: "No token provided" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
+  const token = req?.headers?.authorization?.split(" ")[1];
+  // console.log(token);
+  if (!token)
+    return res.status(401).send({ message: "No Token Unauthorized Access!" });
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    req.decoded = decoded;
-    return next();
+    req.tokenEmail = decoded.email;
+    // console.log(decoded);
+    next();
   } catch (err) {
-    console.error("JWT error:", err);
-    return res.status(401).send({ message: "Unauthorized access" });
+    // console.log(err);
+    return res.status(401).send({ message: "Unauthorized Access!", err });
   }
 };
+
+const uri = process.env.MONGO_URI;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -46,47 +60,21 @@ const client = new MongoClient(uri, {
   },
 });
 
-//Middlewares
-app.use(
-  cors({
-    origin: [
-      "http://localhost:5173",
-      "https://sdp-piirs.web.app/",
-      "https://sdp-piirs.firebaseapp.com",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-app.options("*", cors());
-app.use(express.json());
-
-// --- MongoDB reusable connection ---
-let db, IssuesCollection, PaymentsCollection, UsersCollection;
-
-async function connectDB() {
-  if (!db) {
-    await client.connect();
-    db = client.db("PIIRS");
-    IssuesCollection = db.collection("Issues");
-    PaymentsCollection = db.collection("Payments");
-    UsersCollection = db.collection("Users");
-    console.log("✅ MongoDB connected");
-  }
-}
+app.get("/", (req, res) => {
+  res.send("PISRS Server is Runing");
+});
 
 async function run() {
   try {
     await client.connect();
-    // const db = client.db("PIIRS");
-    // const IssuesCollection = db.collection("Issues");
-    // const PaymentsCollection = db.collection("Payments");
-    // const UsersCollection = db.collection("Users");
-    console.log("✅ MongoDB connected");
+
+    const db = client.db("PIIRS");
+    const IssuesCollection = db.collection("Issues");
+    const PaymentsCollection = db.collection("Payments");
+    const UsersCollection = db.collection("Users");
+
     //Save or Update a User in DB
     app.post("/users", async (req, res) => {
-      await connectDB();
       const userData = req.body;
       userData.role = "citizen";
       userData.isPremium = false;
@@ -119,7 +107,6 @@ async function run() {
     // Create Staff (Firebase Auth + DB)
     app.post("/users/staff", async (req, res) => {
       try {
-        await connectDB();
         const { name, email, phone, image, password } = req.body;
 
         // 1. Create Firebase Auth User (Admin SDK)
@@ -166,7 +153,6 @@ async function run() {
     // Update Staff Information
     app.put("/users/staff/:id", async (req, res) => {
       try {
-        await connectDB();
         const id = req.params.id;
         const { name, email, image } = req.body;
 
@@ -211,7 +197,6 @@ async function run() {
     // Delete Staff (Firebase Auth + DB)
     app.delete("/users/staff/:id", async (req, res) => {
       try {
-        await connectDB();
         const id = req.params.id;
         // 1. Find staff in DB
         const staff = await UsersCollection.findOne({ _id: new ObjectId(id) });
@@ -236,7 +221,6 @@ async function run() {
 
     //Update User Profile
     app.put("/users/update", async (req, res) => {
-      await connectDB();
       const UpdateUser = req.body;
       const { name, email } = UpdateUser;
       const query = { email };
@@ -251,7 +235,6 @@ async function run() {
     });
 
     app.put("/users/block", async (req, res) => {
-      await connectDB();
       const UpdateUser = req.body;
       const { isBlocked, email, blockedBy } = UpdateUser;
       const query = { email };
@@ -269,21 +252,18 @@ async function run() {
 
     //Get All User
     app.get("/users", verifyJWT, async (req, res) => {
-      await connectDB();
       // console.log(req.tokenEmail);
       const result = await UsersCollection.find().toArray();
       res.send(result);
     });
     //Get a Users Role
     app.get("/users/role", verifyJWT, async (req, res) => {
-      await connectDB();
       const query = { email: req.tokenEmail };
       const result = await UsersCollection.findOne(query);
       res.send(result);
     });
     //Get Single User
     app.get("/users/:email", async (req, res) => {
-      await connectDB();
       const email = req.params.email;
       const query = { email };
       const result = await UsersCollection.findOne(query);
@@ -291,12 +271,10 @@ async function run() {
       res.send(result);
     });
     app.get("/issues", async (req, res) => {
-      await connectDB();
       const result = await IssuesCollection.find().toArray();
       res.send(result);
     });
     app.get("/allIssues", async (req, res) => {
-      await connectDB();
       try {
         const {
           search = "",
@@ -364,7 +342,6 @@ async function run() {
 
     //Getting Categorylist
     app.get("/issues/categories", async (req, res) => {
-      await connectDB();
       try {
         const categories = await IssuesCollection.distinct("category");
         res.send(categories);
@@ -376,7 +353,6 @@ async function run() {
 
     //Getting a Single Issue
     app.get("/issues/:id", async (req, res) => {
-      await connectDB();
       const id = req.params.id;
       // console.log(id);
       const query = { _id: new ObjectId(id) };
@@ -386,7 +362,6 @@ async function run() {
     });
     //Updating a Single Issue
     app.put("/issues/:id", async (req, res) => {
-      await connectDB();
       const id = req.params.id;
       const { timeline, ...updatedData } = req.body;
       try {
@@ -407,12 +382,11 @@ async function run() {
         );
         res.send(result);
       } catch (err) {
-        console.log(err);
+        // console.log(err);
       }
     });
     //Updating Upvotes By Email and Id
     app.put("/issues/upvote/:id", async (req, res) => {
-      await connectDB();
       const { userEmail } = req.body;
       const { id } = req.params;
       // console.log(userEmail);
@@ -439,7 +413,6 @@ async function run() {
 
     // Deleting a Single Issue
     app.delete("/issues/:id", async (req, res) => {
-      await connectDB();
       const id = req.params.id;
       try {
         const result = await IssuesCollection.deleteOne({
@@ -460,7 +433,6 @@ async function run() {
     });
     //Getting Issue according to User Email
     app.get("/all-issues/:email", async (req, res) => {
-      await connectDB();
       const email = req.params.email;
       // console.log(email);
       const query = { userEmail: email };
@@ -469,7 +441,6 @@ async function run() {
     });
 
     app.post("/report-issue", async (req, res) => {
-      await connectDB();
       const newIssue = req.body;
       const query = { tittle: newIssue.tittle };
       const alreadyExist = await IssuesCollection.findOne(query);
@@ -485,7 +456,6 @@ async function run() {
 
     //STRIPE PAYMENT CHECKOUT SESSION
     app.post("/create-checkout-session", async (req, res) => {
-      await connectDB();
       const paymentIfo = req.body;
       const paymentType = paymentIfo?.type || "boost";
       // console.log(paymentType);
@@ -548,7 +518,6 @@ async function run() {
     });
 
     app.post("/payment/success", async (req, res) => {
-      await connectDB();
       const { sessionId } = req.body;
       // console.log(sessionId);
       const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -613,7 +582,6 @@ async function run() {
     });
     //Get all Payments By a User Email
     app.get("/payments/:email", async (req, res) => {
-      await connectDB();
       const email = req.params.email;
       const query = { paidBy: email };
       const result = await PaymentsCollection.find(query).toArray();
@@ -621,20 +589,15 @@ async function run() {
     });
     //Get all Payments For Admin
     app.get("/payments", verifyJWT, async (req, res) => {
-      await connectDB();
       const result = await PaymentsCollection.find().toArray();
       res.send(result);
     });
-  } catch (err) {
-    console.error("MongoDB connection error:", err);
   } finally {
   }
 }
 
-run().catch(console.dir);
-
-app.get("/", (req, res) => {
-  res.send("Server is Runing");
+app.listen(port, () => {
+  console.log(`👩‍💻 Server is Running on Port ${port}`);
 });
 
-module.exports = app;
+run().catch(console.dir);
